@@ -1,0 +1,9 @@
+name = "chilemon-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "chilemon-db"
+database_id = "REPLACE_WITH_YOUR_D1_ID"

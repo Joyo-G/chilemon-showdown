@@ -1,36 +1,34 @@
-import express from "express";
-import Chilemon from "../models/chilemon";
+import { Hono } from "hono";
+import { dbChilemon } from "../db";
+import type { Bindings, Variables } from "../types";
 
-const router = express.Router();
+const router = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-/**
- * Get all Chilemon
- */
-router.get("/", async (_req, res) => {
+router.get("/", async (c) => {
   try {
-    const chilemon = await Chilemon.find({});
-    return res.status(200).json(chilemon);
+    const chilemon = await dbChilemon.listAll(c.env.DB);
+    return c.json(chilemon);
   } catch (error) {
     console.error("Error fetching Chilemon:", error);
-    return res.status(500).json({ error: "Error fetching Chilemon" });
+    return c.json({ error: "Error fetching Chilemon" }, 500);
   }
 });
 
-/**
- * Get a specific Chilemon by ID
- */
-router.get("/:id", async (req, res) => {
+router.get("/:id", async (c) => {
   try {
-    const chilemon = await Chilemon.findOne({ id: parseInt(req.params.id) });
-    
+    const chilemon = await dbChilemon.findById(
+      c.env.DB,
+      Number(c.req.param("id")),
+    );
+
     if (!chilemon) {
-      return res.status(404).json({ error: "Chilemon not found" });
+      return c.json({ error: "Chilemon not found" }, 404);
     }
-    
-    return res.status(200).json(chilemon);
+
+    return c.json(chilemon);
   } catch (error) {
     console.error("Error fetching Chilemon:", error);
-    return res.status(500).json({ error: "Error fetching Chilemon" });
+    return c.json({ error: "Error fetching Chilemon" }, 500);
   }
 });
 

@@ -1,193 +1,195 @@
-import express from "express";
-import { authenticate } from "../middleware/authMiddleware";
-import Team from "../models/team";
-import TeamChilemon, { ITeamChilemon } from "../models/teamChilemon";
-import Chilemon from "../models/chilemon";
+import { Hono } from "hono";
+import { authenticate } from "../auth";
+import { dbChilemon, dbTeamChilemon, dbTeams } from "../db";
+import type {
+  Bindings,
+  TeamChilemon as TeamChilemonType,
+  Variables,
+} from "../types";
 
-// Helper: find chilemon name in DB by its numeric id
-async function findChilemonName(id: number): Promise<string | null> {
+const router = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
+const findChilemonName = async (
+  db: D1Database,
+  id: number,
+): Promise<string | null> => {
+  const doc = await dbChilemon.findById(db, id);
+  return doc?.name ?? null;
+};
+
+router.get("/teams", authenticate, async (c) => {
   try {
-    const doc = (await Chilemon.findOne({ id })) as any;
-    return doc?.name ?? null;
-  } catch (err) {
-    console.error("Error finding chilemon name:", err);
-    return null;
-  }
-}
-
-const router = express.Router();
-
-/**
- * Get all teams for the authenticated user
- */
-router.get("/teams", authenticate, async (req, res) => {
-  try {
-    const userId = (req as any).userId;
-    const teams = await Team.find({ userId });
-    return res.status(200).json(teams);
+    const userId = c.get("userId");
+    if (!userId) return c.json({ error: "not authenticated" }, 401);
+    const ownerId: string = userId;
+    const teams = await dbTeams.listByUser(c.env.DB, ownerId);
+    return c.json(teams);
   } catch (error) {
-    return res.status(500).json({ error: "Error fetching teams" });
+    console.error("Error fetching teams:", error);
+    return c.json({ error: "Error fetching teams" }, 500);
   }
 });
 
-/**
- * Get a specific team by ID
- */
-router.get("/teams/:id", authenticate, async (req, res) => {
+router.get("/teams/:id", authenticate, async (c) => {
   try {
-    const userId = (req as any).userId;
-    const team = await Team.findOne({ _id: req.params.id, userId });
+    const userId = c.get("userId");
+    if (!userId) return c.json({ error: "not authenticated" }, 401);
+    const ownerId: string = userId;
+    const teamId = c.req.param("id");
+    if (!teamId) return c.json({ error: "Team id is required" }, 400);
+    const team = await dbTeams.findByIdForUser(c.env.DB, teamId, ownerId);
 
     if (!team) {
-      return res.status(404).json({ error: "Team not found" });
+      return c.json({ error: "Team not found" }, 404);
     }
 
-    return res.status(200).json(team);
+    return c.json(team);
   } catch (error) {
-    return res.status(500).json({ error: "Error fetching team" });
+    console.error("Error fetching team:", error);
+    return c.json({ error: "Error fetching team" }, 500);
   }
 });
 
-/**
- * Create a new team
- */
-router.post("/teams", authenticate, async (req, res) => {
+router.post("/teams", authenticate, async (c) => {
   try {
-    const userId = (req as any).userId;
-    const { name, members } = req.body;
+    const userId = c.get("userId");
+    if (!userId) return c.json({ error: "not authenticated" }, 401);
+    const ownerId: string = userId;
+    const { name, members } = await c.req.json<{
+      name?: string;
+      members?: { pokemonId: number; moves: number[] }[];
+    }>();
 
     if (!name || !name.trim()) {
-      return res.status(400).json({ error: "Team name is required" });
+      return c.json({ error: "Team name is required" }, 400);
     }
 
     if (!members || !Array.isArray(members)) {
-      return res.status(400).json({ error: "Members array is required" });
+      return c.json({ error: "Members array is required" }, 400);
     }
 
     if (members.length === 0 || members.length > 6) {
-      return res.status(400).json({ error: "Team must have between 1 and 6 members" });
+      return c.json({ error: "Team must have between 1 and 6 members" }, 400);
     }
 
-    const team = new Team({ userId, name });
-    const savedTeam = await team.save();
+    const savedTeam = await dbTeams.insert(c.env.DB, ownerId, name);
 
-    // Ahora members es un array de objetos { pokemonId, moves }
-    const teamMembers: ITeamChilemon[] = await Promise.all(
-      members.map(async (member: { pokemonId: number; moves: number[] }, index: number) => {
-        const nameFromDb = await findChilemonName(member.pokemonId);
+    const teamMembers: Omit<TeamChilemonType, "id">[] = await Promise.all(
+      members.map(async (member, index) => {
+        const nameFromDb = await findChilemonName(c.env.DB, member.pokemonId);
         return {
-          teamId: savedTeam._id,
+          teamId: savedTeam.id,
           chilemonId: member.pokemonId,
           position: index,
           nickname: nameFromDb || `Pokemon${member.pokemonId}`,
           level: 100,
           moves: member.moves || [],
-          effort: []
-        } as ITeamChilemon;
-      })
+          effort: [],
+        };
+      }),
     );
 
-    await TeamChilemon.insertMany(teamMembers);
+    await dbTeamChilemon.insertMany(c.env.DB, teamMembers);
 
-    return res.status(201).json(savedTeam);
+    return c.json(savedTeam, 201);
   } catch (error) {
     console.error("Error creating team:", error);
-    return res.status(500).json({ error: "Error creating team" });
+    return c.json({ error: "Error creating team" }, 500);
   }
 });
 
-/**
- * Update an existing team
- */
-router.put("/teams/:id", authenticate, async (req, res) => {
+router.put("/teams/:id", authenticate, async (c) => {
   try {
-    const userId = (req as any).userId;
-    const { name, members } = req.body;
+    const userId = c.get("userId");
+    if (!userId) return c.json({ error: "not authenticated" }, 401);
+    const ownerId: string = userId;
+    const teamId = c.req.param("id");
+    if (!teamId) return c.json({ error: "Team id is required" }, 400);
+    const { name, members } = await c.req.json<{
+      name?: string;
+      members?: { pokemonId: number; moves: number[] }[];
+    }>();
 
     if (!name || !name.trim()) {
-      return res.status(400).json({ error: "Team name is required" });
+      return c.json({ error: "Team name is required" }, 400);
     }
 
-    const team = await Team.findOne({ _id: req.params.id, userId });
-
+    const team = await dbTeams.findByIdForUser(c.env.DB, teamId, ownerId);
     if (!team) {
-      return res.status(404).json({ error: "Team not found" });
+      return c.json({ error: "Team not found" }, 404);
     }
 
-    team.name = name;
-    await team.save();
+    await dbTeams.update(c.env.DB, team.id, ownerId, name);
 
     if (members && Array.isArray(members)) {
       if (members.length === 0 || members.length > 6) {
-        return res.status(400).json({ error: "Team must have between 1 and 6 members" });
+        return c.json({ error: "Team must have between 1 and 6 members" }, 400);
       }
 
-      await TeamChilemon.deleteMany({ teamId: team._id });
+      await dbTeamChilemon.deleteByTeam(c.env.DB, team.id);
 
-      const teamMembers: ITeamChilemon[] = await Promise.all(
-        members.map(async (member: { pokemonId: number; moves: number[] }, index: number) => {
-          const nameFromDb = await findChilemonName(member.pokemonId);
+      const teamMembers: Omit<TeamChilemonType, "id">[] = await Promise.all(
+        members.map(async (member, index) => {
+          const nameFromDb = await findChilemonName(c.env.DB, member.pokemonId);
           return {
-            teamId: team._id,
+            teamId: team.id,
             chilemonId: member.pokemonId,
             position: index,
             nickname: nameFromDb || `Pokemon${member.pokemonId}`,
             level: 100,
             moves: member.moves || [],
-            effort: []
-          } as ITeamChilemon;
-        })
+            effort: [],
+          };
+        }),
       );
-      await TeamChilemon.insertMany(teamMembers);
+      await dbTeamChilemon.insertMany(c.env.DB, teamMembers);
     }
 
-    return res.status(200).json(team);
+    const updated = await dbTeams.findByIdForUser(c.env.DB, team.id, ownerId);
+    return c.json(updated);
   } catch (error) {
     console.error("Error updating team:", error);
-    return res.status(500).json({ error: "Error updating team" });
+    return c.json({ error: "Error updating team" }, 500);
   }
 });
 
-/**
- * Delete a team
- */
-router.delete("/teams/:id", authenticate, async (req, res) => {
+router.delete("/teams/:id", authenticate, async (c) => {
   try {
-    const userId = (req as any).userId;
+    const userId = c.get("userId");
+    if (!userId) return c.json({ error: "not authenticated" }, 401);
+    const ownerId: string = userId;
+    const teamId = c.req.param("id");
+    if (!teamId) return c.json({ error: "Team id is required" }, 400);
 
-    const team = await Team.findOneAndDelete({ _id: req.params.id, userId });
-
+    const team = await dbTeams.findByIdForUser(c.env.DB, teamId, ownerId);
     if (!team) {
-      return res.status(404).json({ error: "Team not found" });
+      return c.json({ error: "Team not found" }, 404);
     }
 
-    await TeamChilemon.deleteMany({ teamId: team._id });
+    await dbTeamChilemon.deleteByTeam(c.env.DB, team.id);
+    await dbTeams.remove(c.env.DB, team.id, ownerId);
 
-    return res.status(200).json({ message: "Team deleted successfully" });
+    return c.json({ message: "Team deleted successfully" });
   } catch (error) {
     console.error("Error deleting team:", error);
-    return res.status(500).json({ error: "Error deleting team" });
+    return c.json({ error: "Error deleting team" }, 500);
   }
 });
 
-/**
- * Get team members (Chilemon) for a specific team
- */
-router.get("/teamChilemon", authenticate, async (req, res) => {
+router.get("/teamChilemon", authenticate, async (c) => {
   try {
-    const { teamId } = req.query;
-
+    const teamId = c.req.query("teamId");
     if (!teamId) {
-      return res.status(400).json({ error: "teamId is required" });
+      return c.json({ error: "teamId is required" }, 400);
     }
 
-    const members = await TeamChilemon.find({ teamId }).sort({ position: 1 });
-    return res.status(200).json(members);
+    const teamKey: string = teamId;
+    const members = await dbTeamChilemon.listForTeam(c.env.DB, teamKey);
+    return c.json(members);
   } catch (error) {
     console.error("Error fetching team members:", error);
-    return res.status(500).json({ error: "Error fetching team members" });
+    return c.json({ error: "Error fetching team members" }, 500);
   }
 });
 
 export default router;
-

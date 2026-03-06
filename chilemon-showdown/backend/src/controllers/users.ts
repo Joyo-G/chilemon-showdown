@@ -1,38 +1,42 @@
-import bcrypt from "bcrypt";
-import express from "express";
-import User from "../models/users";
-import { authenticate } from "../middleware/authMiddleware";
+import { Hono } from "hono";
+import { hash } from "bcryptjs";
+import { authenticate } from "../auth";
+import { dbUsers } from "../db";
+import type { Bindings, Variables } from "../types";
 
-const router = express.Router();
+const router = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-/**
- * Get all users
- */
-router.get("/", authenticate, async (request, response) => {
-  const users = await User.find({});
-  response.json(users);
+router.get("/", authenticate, async (c) => {
+  const users = await dbUsers.list(c.env.DB);
+  return c.json(users);
 });
 
-
-/**
- * Register a new user
- */
-router.post("/", async (req, res) => {
+router.post("/", async (c) => {
   try {
-    const { username, password } = req.body;
-    if (!username || !password)
-      return res.status(400).json({ error: "username and password are required" });
+    const { username, password } = await c.req.json<{
+      username?: string;
+      password?: string;
+    }>();
+    if (!username || !password) {
+      return c.json({ error: "username and password are required" }, 400);
+    }
 
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(password, saltRounds);
-
-    const user = new User({ username, password: passwordHash });
-    const savedUser = await user.save();
-
-    return res.status(201).json(savedUser);
-  } catch (err: any) {
-    if (err?.code === 11000) return res.status(409).json({ error: "username already exists" });
-    return res.status(500).json({ error: "internal error" });
+    const passwordHash = await hash(password, 10);
+    try {
+      const savedUser = await dbUsers.insert(c.env.DB, username, passwordHash);
+      return c.json(savedUser, 201);
+    } catch (err: any) {
+      if (
+        typeof err?.message === "string" &&
+        err.message.includes("UNIQUE constraint failed")
+      ) {
+        return c.json({ error: "username already exists" }, 409);
+      }
+      throw err;
+    }
+  } catch (error) {
+    console.error("Error creating user:", error);
+    return c.json({ error: "internal error" }, 500);
   }
 });
 

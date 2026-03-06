@@ -1,193 +1,225 @@
-import { Types } from "mongoose";
-import Battle from "../models/battle";     
-import TeamChilemon from "../models/teamChilemon";
-import type { ITeamChilemon} from "../models/teamChilemon";   
-import { IPlayer } from "../models/battle";
-import User from "../models/users"
-import Team from "../models/team"
-import engine from "../services/battle/battleEngine";
-import express from "express";
-import { authenticate } from "../middleware/authMiddleware";
-import type { IBattle } from "../models/battle";
-// Carga el team del usuario (ajústalo a tu esquema real)
-export async function loadTeamForUser(teamId: Types.ObjectId) {
-    return TeamChilemon.find({ teamId }).exec();
-}
+import { Hono } from "hono";
+import { authenticate } from "../auth";
+import { dbBattles, dbTeamChilemon, dbTeams, dbUsers } from "../db";
+import { BattleEngine } from "../services/battle/battleEngine";
+import { BattleRuntime } from "../services/battle/battleHelpers";
+import type {
+  Battle,
+  Player,
+  TeamChilemon,
+  Variables,
+  Bindings,
+} from "../types";
 
-// Construye el subdocumento Player
-function makePlayer(userId: Types.ObjectId, username: string, team: ITeamChilemon[]): IPlayer {
-  return {
-    userId,
-    username,
-    team,                 // ITeamChilemon[]
-    activeIndex: 0,
-    partyState: [],       // se rellena en initializeBattle
-    sideEffects: {},
-    mustSwitch: false,
+const router = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
+const loadTeamForUser = async (
+  db: D1Database,
+  teamId: string,
+): Promise<TeamChilemon[]> => {
+  return dbTeamChilemon.listForTeam(db, teamId);
+};
+
+const makePlayer = (
+  userId: string,
+  username: string,
+  team: TeamChilemon[],
+): Player => ({
+  userId,
+  username,
+  team,
+  activeIndex: 0,
+  partyState: [],
+  sideEffects: {},
+  mustSwitch: false,
+});
+
+router.get("/battles/:id", authenticate, async (c) => {
+  const userId =
+    c.req.query("userId") ||
+    (
+      await c.req
+        .json<{ userId?: string }>()
+        .catch(() => ({ userId: undefined }))
+    ).userId ||
+    c.req.header("x-user-id") ||
+    c.get("userId");
+
+  if (!userId) {
+    return c.json({ error: "userId es requerido" }, 400);
+  }
+  const callerId = String(userId);
+
+  const battleId = c.req.param("id");
+  if (!battleId) return c.json({ error: "id requerido" }, 400);
+
+  const battle = await dbBattles.findById(c.env.DB, battleId);
+  if (!battle) return c.json({ error: "Battle not found" }, 404);
+
+  const isPlayer = battle.players.some((p) => p.userId === callerId);
+  if (!isPlayer) return c.json({ error: "No perteneces a esta batalla" }, 403);
+
+  return c.json(battle);
+});
+
+router.get("/:userId/battles", authenticate, async (c) => {
+  const userId = c.req.param("userId");
+  if (!userId) {
+    return c.json({ error: "userId es requerido" }, 400);
+  }
+
+  const battles = await dbBattles.listAll(c.env.DB);
+  const userBattles = battles.filter((battle) =>
+    battle.players.some((p) => p.userId === userId),
+  );
+  return c.json(userBattles);
+});
+
+router.post("/battles", authenticate, async (c) => {
+  const { userId, teamId } = await c.req.json<{
+    userId?: string;
+    teamId?: string;
+  }>();
+  if (!userId || !teamId) {
+    return c.json({ error: "userId y teamId son requeridos" }, 400);
+  }
+  const requesterId: string = userId;
+  const teamKey: string = teamId;
+
+  const user = await dbUsers.findById(c.env.DB, requesterId);
+  const teamUser = await dbTeams.findById(c.env.DB, teamKey);
+
+  if (!user) return c.json({ error: "Usuario no encontrado" }, 404);
+  if (!teamUser) return c.json({ error: "Equipo no encontrado" }, 404);
+  if (teamUser.userId !== user.id)
+    return c.json({ error: "Equipo no pertenece a dicho usuario" }, 404);
+
+  const meId = user.id;
+  const helpers = new BattleRuntime(c.env.DB);
+  const engine = new BattleEngine(helpers);
+
+  const waiting = await dbBattles.findWaiting(c.env.DB);
+
+  if (waiting && waiting.players.length === 1) {
+    const [firstPlayer] = waiting.players;
+    if (firstPlayer && firstPlayer.userId !== meId) {
+      const newTeam = await loadTeamForUser(c.env.DB, teamUser.id);
+      const p2 = makePlayer(meId, user.username, newTeam);
+
+      waiting.players[1] = p2;
+      waiting.status = "in-progress";
+      waiting.turn = 0;
+
+      await engine.initializeBattle(waiting);
+      await dbBattles.update(c.env.DB, waiting);
+      return c.json(waiting);
+    }
+  }
+
+  const myTeam = await loadTeamForUser(c.env.DB, teamUser.id);
+  const p1 = makePlayer(meId, user.username, myTeam);
+
+  const battle: Battle = {
+    id: crypto.randomUUID(),
+    status: "waiting",
+    turn: 0,
+    players: [p1],
+    actions: [],
+    log: [],
   };
-}
 
-const router = express.Router()
-
-// Obtener la batalla correspondiente por ID
-router.get("/battles/:id", authenticate, async (req, res) => {
-    // Allow userId to come from query string, body (for clients that send it), or a header
-    const userId = (req.query.userId as string) || req.body?.userId || req.headers["x-user-id"] || (req as any).user?.id;
-    console.log("Fetching battle for userId:", userId, "and battleId:", req.params.id);
-
-    if (!userId) {
-        return res.status(400).json({ error: "userId es requerido" });
-    }
-
-    const battle = await Battle.findById(req.params.id);
-    if (!battle) return res.status(404).json({ error: "Battle not found" });
-
-    // validar que el usuario participa en esta battle
-    const isPlayer = battle.players.some(p => p.userId.toString() === userId.toString());
-    if (!isPlayer) return res.status(403).json({ error: "No perteneces a esta batalla" });
-
-    res.json(battle);
+  await dbBattles.insert(c.env.DB, battle);
+  return c.json(battle, 201);
 });
 
-router.get("/:userId/battles", authenticate, async (req, res) => {
-    const {userId} = req.params;
-    if (!userId) {
-        return res.status(400).json({ error: "userId es requerido" });
-    }
-    const battles: IBattle[] = await Battle.find({});
-    console.log("All battles",battles);
-    const userBattles = battles.filter(battle => 
-        battle.players.some(p => p.userId.toString() === userId)
-    );
-    console.log("User battles for userId", userId, userBattles);
-    res.json(userBattles);
+router.post("/battles/:id/move", authenticate, async (c) => {
+  const { userId, moveId } = await c.req.json<{
+    userId?: string;
+    moveId?: number;
+  }>();
+  const battleId = c.req.param("id");
+  if (!battleId) return c.json({ error: "id requerido" }, 400);
+
+  const battle = await dbBattles.findById(c.env.DB, battleId);
+  if (!battle) return c.json({ error: "Battle not found" }, 404);
+
+  const callerId = userId ?? c.get("userId");
+  if (!callerId) return c.json({ error: "Usuario no encontrado" }, 404);
+  const actorId: string = callerId;
+
+  const user = await dbUsers.findById(c.env.DB, actorId);
+  if (!user) return c.json({ error: "Usuario no encontrado" }, 404);
+
+  const moveIdNumber = Number(moveId);
+  if (!Number.isFinite(moveIdNumber))
+    return c.json({ error: "moveId invalido" }, 400);
+
+  const helpers = new BattleRuntime(c.env.DB);
+  const engine = new BattleEngine(helpers);
+
+  await engine.submitMove(battle, user.id, moveIdNumber);
+  await dbBattles.update(c.env.DB, battle);
+
+  return c.json(battle);
 });
 
-// Crear instancia de la batalla
-router.post("/battles", authenticate, async (req, res) => { // IMPORTANTE: AGREGAR AUTENTICACIÓN
-    const {userId, teamId} = req.body;
-    const user = await User.findById(userId);
-    const teamSelected = teamId // Desde el frontEnd pasar la id del equipo seleccionado
-    const teamUser = await Team.findById(teamSelected)
-    console.log("Team seleccionado:", teamUser);
-    // Validaciones
-    if (!user) {
-        return res.status(404).json({ error: "Usuario no encontrado" });
-    }
-    if (!teamUser) {
-        return res.status(404).json({ error: "Equipo no encontrado" });
-    }
-    if (teamUser.userId.toString() != user._id.toString()){
-        return res.status(404).json({ error: "Equipo no pertenece a dicho usuario"})
-    }
+router.post("/battles/:id/switch", authenticate, async (c) => {
+  const { userId, toIndex } = await c.req.json<{
+    userId?: string;
+    toIndex?: number;
+  }>();
 
-    const meId = user._id
+  const battleId = c.req.param("id");
+  if (!battleId) return c.json({ error: "id requerido" }, 400);
 
-    const waiting = await Battle.findOne({
-        status: "waiting",
-        "players.0.userId": { $ne: meId },
-        "players.1": { $exists: false }
-    }).exec();
+  const battle = await dbBattles.findById(c.env.DB, battleId);
+  if (!battle) return c.json({ error: "Battle not found" }, 404);
 
-    // Matchmaking, había alguien esperando batalla, nos unimos a esa
-    if (waiting) {
-        const newTeam = await loadTeamForUser(teamUser._id);
-        const newUsername = user.username;
-        const p2 = makePlayer(meId, newUsername, newTeam);
-        
-        waiting.players[1] = p2,
-        waiting.status = "in-progress"
-        waiting.turn = 0;
-        
-        await engine.initializeBattle(waiting);
-        await waiting.save();
-        return res.status(200).json(waiting);
-    }
+  const callerId = userId ?? c.get("userId");
+  if (!callerId) return c.json({ error: "Usuario no encontrado" }, 404);
+  const actorId: string = callerId;
 
-    // No hay nadie esperando batalla, se crea
+  const user = await dbUsers.findById(c.env.DB, actorId);
+  if (!user) return c.json({ error: "Usuario no encontrado" }, 404);
 
-    const myTeam = await loadTeamForUser(teamUser._id);
-    const myUsername = user.username
-    const p1 = makePlayer(meId, myUsername, myTeam);
+  const toIndexNumber = Number(toIndex);
+  if (!Number.isFinite(toIndexNumber))
+    return c.json({ error: "toIndex invalido" }, 400);
 
-    const battle = new Battle({
-        status: "waiting",
-        turn: 0,
-        players: [p1],
-        actions: [],
-        log: []
-    })
+  const helpers = new BattleRuntime(c.env.DB);
+  const engine = new BattleEngine(helpers);
 
-    await battle.save();
-    return res.status(201).json(battle);
-})
+  await engine.submitSwitch(battle, user.id, toIndexNumber);
+  await dbBattles.update(c.env.DB, battle);
 
-router.post("/battles/:id/move", authenticate, async (req, res) => {
-    const {userId, moveId} = req.body;
-    const battle = await Battle.findById(req.params.id).exec();
-    if (!battle) return res.status(404).json({ error: "Battle not found" });
+  return c.json(battle);
+});
 
-    // Identificar bien quien manda la acción
-    const user = await User.findById(userId);
-    if (!user) {
-        return res.status(404).json({ error: "Usuario no encontrado" });
-    }
-    const meId = user._id.toString()
+router.post("/battles/:id/forfeit", authenticate, async (c) => {
+  const { userId } = await c.req.json<{ userId?: string }>();
+  const battleId = c.req.param("id");
+  if (!battleId) return c.json({ error: "id requerido" }, 400);
 
-    const moveIdNumber = Number(moveId);
-    if (!Number.isFinite(moveIdNumber)) throw new Error("moveId inválido");
+  const battle = await dbBattles.findById(c.env.DB, battleId);
+  if (!battle) return c.json({ error: "Battle not found" }, 404);
 
-    await engine.submitMove(battle, meId, moveIdNumber);
-    await battle.save();
+  const callerId = userId ?? c.get("userId");
+  if (!callerId) return c.json({ error: "Usuario no encontrado" }, 404);
+  const actorId: string = callerId;
 
-    return res.json(battle);
-})
+  const user = await dbUsers.findById(c.env.DB, actorId);
+  if (!user) return c.json({ error: "Usuario no encontrado" }, 404);
 
-router.post("/battles/:id/switch", authenticate, async (req, res) => {
-    const {userId, toIndex} = req.body;
+  const meId = user.id;
+  const rival = battle.players.find((p) => p.userId !== meId);
+  if (!rival) return c.json({ error: "No rival found" }, 400);
 
-    const battle = await Battle.findById(req.params.id).exec();
-    if (!battle) return res.status(404).json({ error: "Battle not found" });
+  battle.status = "finished";
+  battle.winner = rival.userId;
+  battle.log.push(`${user.username} se rindio. ${rival.username} gana!`);
 
-    // Identificar bien quien manda la acción
-    const user = await User.findById(userId);
-    if (!user) {
-        return res.status(404).json({ error: "Usuario no encontrado" });
-    }
-    const meId = user._id.toString()
-
-    const toIndexNumber = Number(toIndex);
-    if (!Number.isFinite(toIndexNumber)) throw new Error("toIndex inválido");
-    
-    await engine.submitSwitch(battle, meId, toIndexNumber);
-    await battle.save();
-
-    return res.json(battle);
-})
-
-
-router.post("/battles/:id/forfeit", authenticate, async (req, res) => {
-    const {userId} = req.body;
-    const battle = await Battle.findById(req.params.id).exec();
-    if (!battle) return res.status(404).json({ error: "Battle not found" });
-
-    const user = await User.findById(userId);
-    if (!user) {
-        return res.status(404).json({ error: "Usuario no encontrado" });
-    }
-
-    const meId = user._id;
-
-    const rivalId = battle.players[0].userId.equals(meId)
-            ? battle.players[1].userId
-            : battle.players[0].userId;
-
-    battle.status = "finished";
-    battle.winner = rivalId;
-    battle.log.push(`${user.username} se rindió. ${battle.players.find(p => p.userId.equals(rivalId))?.username} gana!`);
-    await battle.save();
-
-    res.json(battle);
-})
+  await dbBattles.update(c.env.DB, battle);
+  return c.json(battle);
+});
 
 export default router;
