@@ -1,12 +1,14 @@
 // src/api/client.ts
-const API_URL = import.meta.env.VITE_API_URL || "/api";
+const API_URL = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
 
 export async function apiFetch(endpoint: string, options: RequestInit = {}) {
-  const res = await fetch(`${API_URL}/${endpoint}`, {
+  const normalizedEndpoint = endpoint.replace(/^\//, "");
+
+  const res = await fetch(`${API_URL}/${normalizedEndpoint}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...(options.headers || {})
+      ...(options.headers || {}),
     },
   });
 
