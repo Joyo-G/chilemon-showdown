@@ -57,7 +57,7 @@ export const issueSession = async (c: AppContext, user: User) => {
   setCookie(c, "token", token, {
     httpOnly: true,
     secure: true,
-    sameSite: "Lax",
+    sameSite: "None",
     path: "/",
   });
 

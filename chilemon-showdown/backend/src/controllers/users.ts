@@ -6,9 +6,20 @@ import type { Bindings, Variables } from "../types";
 
 const router = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-router.get("/", authenticate, async (c) => {
-  const users = await dbUsers.list(c.env.DB);
-  return c.json(users);
+router.get("/", async (c) => {
+  const username = c.req.query("username");
+
+  // Public check for username availability (no auth required)
+  if (username) {
+    const user = await dbUsers.findByUsername(c.env.DB, username);
+    return c.json(user ? [user] : []);
+  }
+
+  // Authenticated list of users
+  return authenticate(c, async () => {
+    const users = await dbUsers.list(c.env.DB);
+    return c.json(users);
+  });
 });
 
 router.post("/", async (c) => {
