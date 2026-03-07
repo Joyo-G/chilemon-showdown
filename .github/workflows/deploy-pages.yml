@@ -32,4 +32,4 @@ jobs:
         run: npx wrangler pages deploy dist --project-name=chilemon-showdown
         working-directory: chilemon-showdown/frontend
         env:
-          api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
