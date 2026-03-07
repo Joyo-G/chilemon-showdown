@@ -13,7 +13,11 @@ import { ensureBaseData } from "./utils/seed";
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Allowed origins for CORS with credentials
-const defaultOrigins = ["https://chilemon-showdown.pages.dev"];
+const defaultOrigins = [
+  "https://chilemon-showdown.pages.dev",
+  "https://chilemon.cl",
+  "https://www.chilemon.cl",
+];
 
 const getAllowedOrigins = (env?: Bindings) => {
   const fromEnv = env?.FRONTEND_ORIGINS;
