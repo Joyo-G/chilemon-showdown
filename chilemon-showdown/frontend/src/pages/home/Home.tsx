@@ -5,8 +5,8 @@ import type { TeamChilemon } from "../../types/TeamChilemon";
 
 import ButtonLink from "../../components/ButtonLink";
 import TeamSelector from "../../components/TeamSelector";
-import { createBattle } from '../../services/battle';
-import { useNavigate } from 'react-router-dom';
+import { createBattle } from "../../services/battle";
+import { useNavigate } from "react-router-dom";
 
 import { Container, Paper, Typography, Stack } from "@mui/material";
 
@@ -17,8 +17,11 @@ type TeamView = {
 };
 
 export default function Home() {
-  const storedUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
-  const user: { id: number; username: string; password: string }=JSON.parse(storedUser!); // mock user para test
+  const storedUser =
+    typeof window !== "undefined" ? localStorage.getItem("user") : null;
+  const user: { id: number; username: string; password: string } = JSON.parse(
+    storedUser!,
+  ); // mock user para test
   // este debería ser un usuario autenticado pero setiene que implementar auth primero
   console.log("Usuario en Home:", user.id, user.username, user.password);
   // Definimos los estados
@@ -35,10 +38,7 @@ export default function Home() {
         };
 
         // Equipos del usuario autenticado (el backend usa la cookie, no userId)
-        const teamsRes = await axios.get<Team[]>(
-          `/api/teams`,
-          auth
-        );
+        const teamsRes = await axios.get<Team[]>("api/teams", auth);
 
         const teamsCargados = teamsRes.data;
 
@@ -46,8 +46,11 @@ export default function Home() {
         const teamsWithMembers: TeamView[] = await Promise.all(
           teamsCargados.map(async (t) => {
             const membersRes = await axios.get<TeamChilemon[]>(
-              `/api/teamChilemon`,
-              { params: { teamId: t.id }, ...auth }
+              "api/teamChilemon",
+              {
+                params: { teamId: t.id },
+                ...auth,
+              },
             );
 
             const members = membersRes.data
@@ -59,7 +62,7 @@ export default function Home() {
               name: t.name,
               members,
             };
-          })
+          }),
         );
 
         setTeams(teamsWithMembers);
@@ -77,11 +80,11 @@ export default function Home() {
   const handleBattleCreation = async () => {
     // Use frontend service to create/join a battle and navigate to Battle page
     if (!selectedTeam) {
-      console.warn('No team selected');
+      console.warn("No team selected");
       return;
     }
     try {
-      const userId = (user?.id || '') as string;
+      const userId = (user?.id || "") as string;
       const res = await createBattle(userId, selectedTeam.id);
       const id = (res as any)._id ?? (res as any).id;
       console.log("Created battle with ID:", id);
@@ -90,7 +93,7 @@ export default function Home() {
         navigate(`/battle/${id}`);
       }
     } catch (err) {
-      console.error('Error creating battle via service', err);
+      console.error("Error creating battle via service", err);
     }
   };
 
@@ -125,7 +128,6 @@ export default function Home() {
         </Typography>
 
         <Stack spacing={2} alignItems="center" sx={{ width: "100%" }}>
-
           <ButtonLink route="team-builder" text="Team Builder" fullWidth />
 
           <TeamSelector
@@ -136,14 +138,13 @@ export default function Home() {
             }
           />
 
-          <ButtonLink text="Battle with Selected Team" onClick={handleBattleCreation} />
+          <ButtonLink
+            text="Battle with Selected Team"
+            onClick={handleBattleCreation}
+          />
 
           {teams.length === 0 && (
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ mt: 1 }}
-            >
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               No tienes equipos todavía.
             </Typography>
           )}

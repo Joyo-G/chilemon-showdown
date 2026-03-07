@@ -22,7 +22,7 @@ interface PlayerDisplay {
   id: number;
   name: string;
   avatar: string;
-  selectedMoves?: number[];  
+  selectedMoves?: number[];
   availableMoves?: number[]; // IDs de movimientos disponibles
 }
 
@@ -43,31 +43,36 @@ const TeamBuilder: React.FC = () => {
   const [activeTeamId, setActiveTeamId] = useState<number | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
 
-  const auth = useCallback(() => ({
-    withCredentials: true,
-    headers: { "X-CSRF-Token": localStorage.getItem("csrf") || "" },
-  }), []);
+  const auth = useCallback(
+    () => ({
+      withCredentials: true,
+      headers: { "X-CSRF-Token": localStorage.getItem("csrf") || "" },
+    }),
+    [],
+  );
 
+  const getRandomMoves = useCallback(
+    (availableMoves: number[], count: number = 4): number[] => {
+      if (!availableMoves || availableMoves.length === 0) return [];
 
-  const getRandomMoves = useCallback((availableMoves: number[], count: number = 4): number[] => {
-    if (!availableMoves || availableMoves.length === 0) return [];
+      // Filter out moves whose `power` is null
+      const validMoves = availableMoves.filter((id) => !isPowerNull(id));
+      if (validMoves.length === 0) return [];
 
-    // Filter out moves whose `power` is null
-    const validMoves = availableMoves.filter(id => !isPowerNull(id));
-    if (validMoves.length === 0) return [];
-
-    const shuffled = [...validMoves].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, Math.min(count, shuffled.length));
-  }, []);
+      const shuffled = [...validMoves].sort(() => Math.random() - 0.5);
+      return shuffled.slice(0, Math.min(count, shuffled.length));
+    },
+    [],
+  );
 
   const loadAvailableChilemon = useCallback(async () => {
     try {
-      const response = await axios.get<Chilemon[]>("/chilemon");
-      const players: PlayerDisplay[] = response.data.map(chilemon => ({
+      const response = await axios.get<Chilemon[]>("chilemon");
+      const players: PlayerDisplay[] = response.data.map((chilemon) => ({
         id: chilemon.id,
         name: chilemon.name,
         avatar: `/sprites/${chilemon.id}.png`,
-        availableMoves: chilemon.moves || [] 
+        availableMoves: chilemon.moves || [],
       }));
       setAvailablePlayers(players);
     } catch (error) {
@@ -82,32 +87,38 @@ const TeamBuilder: React.FC = () => {
       const user = storedUser ? JSON.parse(storedUser) : null;
 
       if (!user) return;
-      const teamsRes = await axios.get(`/api/teams`, auth());
+      const teamsRes = await axios.get("api/teams", auth());
 
       const teamsWithMembers = await Promise.all(
         teamsRes.data.map(async (team: any) => {
-          const membersRes = await axios.get(`/api/teamChilemon`, {
+          const membersRes = await axios.get("api/teamChilemon", {
             params: { teamId: team.id },
             ...auth(),
           });
 
-          const chilemonRes = await axios.get<Chilemon[]>("/chilemon");
+          const chilemonRes = await axios.get<Chilemon[]>("chilemon");
 
-          const members = membersRes.data.map((m: any) => {
-            const chilemon = chilemonRes.data.find(c => c.id === m.chilemonId);
-            return chilemon ? {
-              id: chilemon.id,
-              name: chilemon.name,
-              avatar: `/sprites/${chilemon.id}.png`
-            } : null;
-          }).filter(Boolean);
+          const members = membersRes.data
+            .map((m: any) => {
+              const chilemon = chilemonRes.data.find(
+                (c) => c.id === m.chilemonId,
+              );
+              return chilemon
+                ? {
+                    id: chilemon.id,
+                    name: chilemon.name,
+                    avatar: `/sprites/${chilemon.id}.png`,
+                  }
+                : null;
+            })
+            .filter(Boolean);
 
           return {
             id: team.id,
             name: team.name,
-            members: members
+            members: members,
           };
-        })
+        }),
       );
 
       setExistingTeams(teamsWithMembers);
@@ -137,47 +148,57 @@ const TeamBuilder: React.FC = () => {
     setError("");
   }, []);
 
+  const handleAddPlayer = useCallback(
+    (player: PlayerDisplay) => {
+      if (selectedPlayers.length >= 6) {
+        setError("No puedes agregar más de 6 Chilemon a tu equipo.");
+        return;
+      }
+      if (selectedPlayers.find((p) => p.id === player.id)) {
+        setError("Este Chilemon ya está en tu equipo.");
+        return;
+      }
 
-  const handleAddPlayer = useCallback((player: PlayerDisplay) => {
-    if (selectedPlayers.length >= 6) {
-      setError("No puedes agregar más de 6 Chilemon a tu equipo.");
-      return;
-    }
-    if (selectedPlayers.find(p => p.id === player.id)) {
-      setError("Este Chilemon ya está en tu equipo.");
-      return;
-    }
-    
-    const randomMoves = getRandomMoves(player.availableMoves || [], 4);
-    
-    setSelectedPlayers(prev => [...prev, {
-      ...player,
-      selectedMoves: randomMoves, 
-    }]);
-    setError("");
-  }, [selectedPlayers, getRandomMoves]);
+      const randomMoves = getRandomMoves(player.availableMoves || [], 4);
+
+      setSelectedPlayers((prev) => [
+        ...prev,
+        {
+          ...player,
+          selectedMoves: randomMoves,
+        },
+      ]);
+      setError("");
+    },
+    [selectedPlayers, getRandomMoves],
+  );
 
   const handleRemovePlayer = useCallback((playerId: number) => {
-    setSelectedPlayers(prev => prev.filter(p => p.id !== playerId));
+    setSelectedPlayers((prev) => prev.filter((p) => p.id !== playerId));
     setError("");
   }, []);
 
-  const handleDeleteTeam = useCallback(async (teamId: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm("¿Estás seguro de que quieres eliminar este equipo?")) {
-      return;
-    }
-
-    try {
-      await axios.delete(`/api/teams/${teamId}`, auth());
-      setExistingTeams(prev => prev.filter(t => t.id !== teamId));
-      if (activeTeamId === teamId) {
-        handleNewTeam();
+  const handleDeleteTeam = useCallback(
+    async (teamId: number, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (
+        !window.confirm("¿Estás seguro de que quieres eliminar este equipo?")
+      ) {
+        return;
       }
-    } catch (error) {
-      setError("Error al eliminar el equipo.");
-    }
-  }, [auth, activeTeamId, handleNewTeam]);
+
+      try {
+        await axios.delete(`api/teams/${teamId}`, auth());
+        setExistingTeams((prev) => prev.filter((t) => t.id !== teamId));
+        if (activeTeamId === teamId) {
+          handleNewTeam();
+        }
+      } catch (error) {
+        setError("Error al eliminar el equipo.");
+      }
+    },
+    [auth, activeTeamId, handleNewTeam],
+  );
 
   const handleSaveTeam = useCallback(async () => {
     setError("");
@@ -202,22 +223,30 @@ const TeamBuilder: React.FC = () => {
       }
 
       // Envía los movimientos junto con el ID
-      const membersData = selectedPlayers.map(p => ({
+      const membersData = selectedPlayers.map((p) => ({
         pokemonId: p.id,
-        moves: p.selectedMoves || []  
+        moves: p.selectedMoves || [],
       }));
 
       if (activeTeamId) {
-        await axios.put(`/api/teams/${activeTeamId}`, {
-          name: teamName,
-          members: membersData  
-        }, auth());
+        await axios.put(
+          `api/teams/${activeTeamId}`,
+          {
+            name: teamName,
+            members: membersData,
+          },
+          auth(),
+        );
         window.alert("¡Equipo actualizado exitosamente!");
       } else {
-        await axios.post("/api/teams", {
-          name: teamName,
-          members: membersData  
-        }, auth());
+        await axios.post(
+          "api/teams",
+          {
+            name: teamName,
+            members: membersData,
+          },
+          auth(),
+        );
         window.alert("¡Equipo creado exitosamente!");
       }
 
@@ -228,9 +257,12 @@ const TeamBuilder: React.FC = () => {
     }
   }, [teamName, selectedPlayers, activeTeamId, auth, loadExistingTeams]);
 
-  const teamSlots = useMemo(() => 
-    Array(6).fill(null).map((_, index) => selectedPlayers[index] || null),
-    [selectedPlayers]
+  const teamSlots = useMemo(
+    () =>
+      Array(6)
+        .fill(null)
+        .map((_, index) => selectedPlayers[index] || null),
+    [selectedPlayers],
   );
 
   return (
@@ -328,12 +360,12 @@ const TeamBuilder: React.FC = () => {
                     borderColor: "#1a73e8",
                   },
                 }}
-                >
+              >
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography 
-                    variant="body2" 
-                    sx={{ 
-                      fontWeight: 600, 
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontWeight: 600,
                       mb: 0.5,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -405,7 +437,9 @@ const TeamBuilder: React.FC = () => {
             color: "#1a73e8",
           }}
         >
-          {isCreatingNew || !activeTeamId ? "Crear Nuevo Equipo" : "Editar Equipo"}
+          {isCreatingNew || !activeTeamId
+            ? "Crear Nuevo Equipo"
+            : "Editar Equipo"}
         </Typography>
 
         <Paper
@@ -424,7 +458,7 @@ const TeamBuilder: React.FC = () => {
             className="team-name-input"
             name="team-name-input"
             value={teamName}
-            onChange={e => setTeamName(e.target.value)}
+            onChange={(e) => setTeamName(e.target.value)}
             placeholder="Nombre del Equipo"
             variant="outlined"
             size="small"
@@ -497,7 +531,9 @@ const TeamBuilder: React.FC = () => {
                 minHeight: 160,
                 bgcolor: player ? "white" : "#fafafa",
                 "&:hover": {
-                  boxShadow: player ? "0 4px 12px rgba(26, 115, 232, 0.15)" : "none",
+                  boxShadow: player
+                    ? "0 4px 12px rgba(26, 115, 232, 0.15)"
+                    : "none",
                 },
               }}
             >
@@ -506,7 +542,7 @@ const TeamBuilder: React.FC = () => {
                   <Avatar
                     src={player.avatar}
                     alt={player.name}
-                    imgProps={{ className: 'slot-avatar' }}
+                    imgProps={{ className: "slot-avatar" }}
                     sx={{
                       width: 80,
                       height: 80,
@@ -609,14 +645,14 @@ const TeamBuilder: React.FC = () => {
             },
           }}
         >
-          {availablePlayers.map(player => {
-            const isSelected = selectedPlayers.find(p => p.id === player.id);
+          {availablePlayers.map((player) => {
+            const isSelected = selectedPlayers.find((p) => p.id === player.id);
             return (
               <Paper
                 key={player.id}
                 elevation={0}
                 onClick={() => !isSelected && handleAddPlayer(player)}
-                className={`available-card ${isSelected ? ' selected' : ''}`}
+                className={`available-card ${isSelected ? " selected" : ""}`}
                 sx={{
                   position: "relative",
                   bgcolor: isSelected ? "#f5f5f5" : "white",
@@ -650,9 +686,9 @@ const TeamBuilder: React.FC = () => {
                     bgcolor: "#f5f5f5",
                   }}
                 />
-                <Typography 
-                  variant="body2" 
-                  sx={{ 
+                <Typography
+                  variant="body2"
+                  sx={{
                     fontWeight: 600,
                     color: isSelected ? "#757575" : "#212121",
                   }}
@@ -690,5 +726,3 @@ const TeamBuilder: React.FC = () => {
 };
 
 export default TeamBuilder;
-
-
