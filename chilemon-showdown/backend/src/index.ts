@@ -12,11 +12,27 @@ import { ensureBaseData } from "./utils/seed";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+// Allowed origins for CORS with credentials
+const defaultOrigins = ["https://chilemon-showdown.pages.dev"];
+
+const getAllowedOrigins = (env?: Bindings) => {
+  const fromEnv = env?.FRONTEND_ORIGINS;
+  if (!fromEnv) return defaultOrigins;
+  return fromEnv
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+};
+
 app.use("*", logger());
 app.use(
   "*",
   cors({
-    origin: "*",
+    origin: (origin, c) => {
+      const allowed = getAllowedOrigins(c.env);
+      if (origin && allowed.includes(origin)) return origin;
+      return allowed[0]; // fallback to first allowed origin
+    },
     allowHeaders: ["Content-Type", "X-CSRF-Token"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
