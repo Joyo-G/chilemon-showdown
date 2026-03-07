@@ -37,13 +37,16 @@ router.post("/", async (c) => {
       const savedUser = await dbUsers.insert(c.env.DB, username, passwordHash);
       return c.json(savedUser, 201);
     } catch (err: any) {
+      const msg = String(err?.message ?? "");
+      // Handle D1 unique constraint variants
       if (
-        typeof err?.message === "string" &&
-        err.message.includes("UNIQUE constraint failed")
+        msg.includes("UNIQUE constraint") ||
+        msg.includes("constraint violation")
       ) {
         return c.json({ error: "username already exists" }, 409);
       }
-      throw err;
+      console.error("Error inserting user:", err);
+      return c.json({ error: "internal error" }, 500);
     }
   } catch (error) {
     console.error("Error creating user:", error);
