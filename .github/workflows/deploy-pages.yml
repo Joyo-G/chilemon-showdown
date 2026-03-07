@@ -1,0 +1,35 @@
+name: Deploy Frontend (Pages)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - chilemon-showdown/frontend/**
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: chilemon-showdown/frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: chilemon-showdown/frontend
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+
+      - name: Deploy Cloudflare Pages
+        run: npx wrangler pages deploy dist --project-name=chilemon-showdown
+        working-directory: chilemon-showdown/frontend
+        env:
+          api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}

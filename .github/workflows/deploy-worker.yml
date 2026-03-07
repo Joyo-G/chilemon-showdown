@@ -1,0 +1,29 @@
+name: Deploy Backend (Worker)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - chilemon-showdown/backend/**
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm install
+        working-directory: chilemon-showdown/backend
+
+      - name: Deploy Cloudflare Worker
+        run: npx wrangler deploy
+        working-directory: chilemon-showdown/backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
