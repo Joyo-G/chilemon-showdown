@@ -39,6 +39,8 @@ app.use(
     },
     allowHeaders: ["Content-Type", "X-CSRF-Token"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    // Let browsers read the CSRF token we send back on login
+    exposeHeaders: ["X-CSRF-Token"],
     credentials: true,
   }),
 );
