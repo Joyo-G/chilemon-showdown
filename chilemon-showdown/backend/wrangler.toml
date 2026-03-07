@@ -6,4 +6,4 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "chilemon-db"
-database_id = "REPLACE_WITH_YOUR_D1_ID"
+database_id = "607efe8f-7f1c-4873-aefd-0a54b928c1c9"
