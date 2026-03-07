@@ -1,6 +1,80 @@
-import schemaSQL from "../../schema.sql?raw";
 import chilemonData from "../../data/chilemon_chileizados.json";
 import movesData from "../../data/moves.json";
+
+// Inline schema to avoid bundler loaders
+const schemaSQL = `
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS teams (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS team_chilemon (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL,
+  chilemon_id INTEGER NOT NULL,
+  position INTEGER NOT NULL,
+  nickname TEXT NOT NULL,
+  level INTEGER DEFAULT 100,
+  moves TEXT NOT NULL,
+  effort TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS chilemon (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  abilities TEXT NOT NULL,
+  height INTEGER NOT NULL,
+  weight INTEGER NOT NULL,
+  moves TEXT NOT NULL,
+  stats TEXT NOT NULL,
+  types TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS moves (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  damage_class TEXT NOT NULL,
+  power INTEGER,
+  pp INTEGER NOT NULL,
+  priority INTEGER DEFAULT 0,
+  stat_changes TEXT NOT NULL,
+  target TEXT NOT NULL,
+  type TEXT NOT NULL,
+  ailment TEXT NOT NULL,
+  effect_entry TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS battles (
+  id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  status TEXT NOT NULL,
+  turn INTEGER NOT NULL DEFAULT 0,
+  winner TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_battles_status ON battles(status);
+CREATE INDEX IF NOT EXISTS idx_teams_user ON teams(user_id);
+CREATE INDEX IF NOT EXISTS idx_team_chilemon_team ON team_chilemon(team_id);
+`;
 
 const chunk = <T>(arr: T[], size: number) => {
   const chunks: T[][] = [];
