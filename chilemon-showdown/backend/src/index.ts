@@ -8,7 +8,7 @@ import chilemonRouter from "./controllers/chilemon";
 import testingRouter from "./controllers/testing";
 import battleRouter from "./controllers/battle";
 import type { Bindings, Variables } from "./types";
-import { ensureBaseData } from "./utils/seed";
+import { ensureBaseData, ensureSchema } from "./utils/seed";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -44,6 +44,7 @@ app.use(
 );
 
 app.use("*", async (c, next) => {
+  await ensureSchema(c.env.DB);
   await ensureBaseData(c.env.DB);
   return next();
 });

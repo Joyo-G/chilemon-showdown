@@ -1,3 +1,4 @@
+import schemaSQL from "../../schema.sql?raw";
 import chilemonData from "../../data/chilemon_chileizados.json";
 import movesData from "../../data/moves.json";
 
@@ -71,6 +72,26 @@ const seedMoves = async (db: D1Database) => {
 };
 
 let baseDataPromise: Promise<void> | null = null;
+let schemaPromise: Promise<void> | null = null;
+
+export const ensureSchema = (db: D1Database) => {
+  if (!schemaPromise) {
+    schemaPromise = (async () => {
+      const statements = schemaSQL
+        .split(/;\s*\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      for (const stmt of statements) {
+        await db.prepare(stmt).run();
+      }
+    })().catch((err) => {
+      console.error("Failed to ensure schema", err);
+      schemaPromise = null;
+    });
+  }
+  return schemaPromise;
+};
 
 export const ensureBaseData = (db: D1Database) => {
   if (!baseDataPromise) {
