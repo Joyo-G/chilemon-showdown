@@ -11,7 +11,6 @@ import {
   Box,
 } from "@mui/material";
 
-
 const LoginRegister: React.FC = () => {
   const [login, setLogin] = useState("Login");
   const [username, setUsername] = useState("");
@@ -19,7 +18,6 @@ const LoginRegister: React.FC = () => {
   const [error, setError] = useState("");
   const navigate = useNavigate();
   const auth = useAuth();
-
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -30,9 +28,11 @@ const LoginRegister: React.FC = () => {
       setError("");
       navigate("/home");
     } catch (err: any) {
-      const msg = err?.message === "Error al iniciar sesión" || err?.message === "Error en el login"
-        ? "Usuario o contraseña incorrectos."
-        : (err?.message || "Error de conexión.");
+      const msg =
+        err?.message === "Error al iniciar sesión" ||
+        err?.message === "Error en el login"
+          ? "Usuario o contraseña incorrectos."
+          : err?.message || "Error de conexión.";
       setError(msg);
     } finally {
       setUsername("");
@@ -49,14 +49,16 @@ const LoginRegister: React.FC = () => {
       alert("¡Registro exitoso!");
       setLogin("Login");
     } catch (err: any) {
-      const msg = err?.message === "Usuario ya existe" ? "El usuario ya existe." : (err?.message || "Error de conexión.");
+      const msg =
+        err?.message === "Usuario ya existe"
+          ? "El usuario ya existe."
+          : err?.message || "Error de conexión.";
       setError(msg);
     }
 
     setUsername("");
     setPassword("");
   };
-
 
   return (
     <Container
@@ -77,8 +79,13 @@ const LoginRegister: React.FC = () => {
           textAlign: "center",
         }}
       >
-        <Typography variant="h4" fontWeight={700} color="primary" sx={{ mb: 2 }}>
-          Bienvenido/as a Chilemon Showdown!!
+        <Typography
+          variant="h4"
+          fontWeight={700}
+          color="primary"
+          sx={{ mb: 2 }}
+        >
+          Bienvenido/as a Chilemon Showdown!!!
         </Typography>
 
         <Typography
